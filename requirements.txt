@@ -1,0 +1,11 @@
+setuptools
+dash
+networkx
+plotly
+pandas
+scipy
+requests
+colour
+Flask
+yagmail
+mongoengine
