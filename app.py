@@ -36,6 +36,7 @@ class DataHolder:
     ip_ctrl="http://localhost:8181/onos/v1/"
     activeNodes=[]
     current_selected_node = None
+    path = None
 
     @staticmethod
     def restoreLog():
@@ -143,6 +144,19 @@ class DataHolder:
         for mail in DataHolder.mails:
             mailer.sendMail(mail,subject,msg)
 
+def getPathBetween(src, dst):
+    response = rq.get("{}SRE/path/getbest/{}/{}/".format(DataHolder.ip_ctrl.replace("/v1/", "/rnn/"), src, dst),
+                      auth=HTTPBasicAuth("karaf", "karaf"))
+    if response.status_code is not 200:
+        DataHolder.path = None
+        return None
+    DataHolder.path = []
+    for node in json.loads(response.text)["path"]:
+        strNode = "of:"+((16-(int(node/10)+1))*"0")+str(node)
+        DataHolder.path.append(strNode)
+
+    return DataHolder.path
+
 def getSubjectInfo():
     toret = []
     toret.append(dcc.Markdown(d("##### Details on provided subject")))
@@ -233,9 +247,13 @@ def obtainTopology():
     try:
         jHosts = None
         jDevices = None
+        #print("{}hosts".format(DataHolder.ip_ctrl))
         responseHosts = rq.get("{}hosts".format(DataHolder.ip_ctrl), auth=HTTPBasicAuth("karaf", "karaf"))
+        #print(responseHosts.text)
         responseDevice = rq.get("{}devices".format(DataHolder.ip_ctrl),auth=HTTPBasicAuth("karaf","karaf"))
+        #print(responseDevice.text)
         responseLinks = rq.get("{}links".format(DataHolder.ip_ctrl),auth=HTTPBasicAuth("karaf","karaf"))
+        #print(responseLinks.text)
         jHosts = responseHosts.json()
         jDevices = responseDevice.json()
         jLinks = responseLinks.json()
@@ -351,6 +369,9 @@ def network_graph(yearRange, AccountToSearch):
             c = '#FF5733'
         else:
             c=colors[index]
+        if DataHolder.path is not None:
+            if edge[0] in DataHolder.path and edge[1] in DataHolder.path:
+                c = "#7b00ff"
 
         trace = go.Scatter(x=tuple([x0, x1, None]), y=tuple([y0, y1, None]),
                            mode='lines',
@@ -369,7 +390,7 @@ def network_graph(yearRange, AccountToSearch):
                             hoverinfo="text", marker={'size': 10, 'color':  '#FF5733'})
 
     node_trace_search = go.Scatter(x=[], y=[], hovertext=[], text=[], mode='markers+text', textposition="bottom center",
-                                 hoverinfo="text", marker={'size': 30, 'color': '#900C3F'})
+                                 hoverinfo="text", marker={'size': 30, 'color': '#3d017d'})
 
     index = 0
     for node in G.nodes():
@@ -380,13 +401,15 @@ def network_graph(yearRange, AccountToSearch):
         hovertext = "ID: " + str(node) + "<br>" + "Type: " + str(
             G.nodes[node]['Type'])+"<br>"+"Tag: "+str(G.nodes[node]["Tag"])
         text = node
-        if node == AccountToSearch:
-            node_trace_search['x'] += tuple([x])
-            node_trace_search['y'] += tuple([y])
-            node_trace_search['hovertext'] += tuple([hovertext])
-            node_trace_search['text'] += tuple([text])
+        if DataHolder.path is not None:
+            if node in DataHolder.path:
+                node_trace_search['x'] += tuple([x])
+                node_trace_search['y'] += tuple([y])
+                node_trace_search['hovertext'] += tuple([hovertext])
+                node_trace_search['text'] += tuple([text])
+                AccountToSearch = node
 
-        elif G.nodes[node]["Type"] == "host":
+        if G.nodes[node]["Type"] == "host":
             node_trace_host['x'] += tuple([x])
             node_trace_host['y'] += tuple([y])
             node_trace_host['hovertext'] += tuple([hovertext])
@@ -558,6 +581,18 @@ app.layout = html.Div([
     ),
 
     html.Div(id="okbuttonsok"),html.Div(id="allow-once"),html.Div(id="block"),
+
+    html.Div(id="pathselectorsrc", children=
+             [
+                 dcc.Markdown(d("**Select source**")),
+                 dcc.RadioItems(options=getOptions(),labelStyle={'display': 'inline-block'},id="srcpath")
+             ],style={"color":"#4e1175"}),
+    html.Div(id="pathselectordst", children=
+             [
+                 dcc.Markdown(d("**Select Destination**")),
+                 dcc.RadioItems(options=getOptions(),labelStyle={'display': 'inline-block'},id="dstpath")
+             ],style={"color":"#4e1175"}),
+
     dcc.Markdown(d("""
                           #### Logged activity
                           """), style={"color": "#4e1175"}),
@@ -658,7 +693,7 @@ def display_hover_data(hoverData):
     except:
         toret=dcc.Markdown(d("Nothing selected"),style={"color":"#4e1175"})
     try:
-        response = rq.get("{}rnn/SRE/autopolicy/data/{}/".format(DataHolder.ip_ctrl,toret),auth=HTTPBasicAuth("karaf","karaf"))
+        response = rq.get("{}SRE/autopolicy/data/{}/".format(DataHolder.ip_ctrl.replace("/v1/","/rnn/"),toret),auth=HTTPBasicAuth("karaf","karaf"))
 
         if response.status_code != 200:
             return dcc.Markdown(d("Nothing selected"),style={"color":"#4e1175"})
@@ -671,8 +706,15 @@ def display_hover_data(hoverData):
 
 @app.callback(
     dash.dependencies.Output('my-graph', 'figure'),
-    [dash.dependencies.Input('demo-dropdown', 'value'),dash.dependencies.Input('interval-component-log', 'n_intervals')])
-def update_output123(value,interval):
+    [dash.dependencies.Input('demo-dropdown', 'value'),dash.dependencies.Input('interval-component-log', 'n_intervals'),
+     dash.dependencies.Input('srcpath','value'),dash.dependencies.Input('dstpath','value')])
+def update_output123(value,interval,src,dst):
+
+    if src != dst and src is not None and dst is not None:
+        getPathBetween(src, dst)
+    else:
+        DataHolder.path = None
+
     if value=="random":
         DataHolder.drawFunction = nx.drawing.layout.random_layout
     if value=="spectral":
@@ -744,7 +786,7 @@ def okbuttons(*args):
     #print(str(args))
     return ""
 @app.callback(dash.dependencies.Output('allow-once', 'children'),getAlertsAllowbuttonsInput())
-def allow(*args):
+def allowonce(*args):
     index = -1
     for i in range(len(args)):
         if args[i]==1:
