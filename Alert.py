@@ -1,5 +1,6 @@
 import mongoengine
 import datetime
+import dash_core_components as dcc
 
 from Status import Status
 
@@ -16,3 +17,37 @@ class Alert(mongoengine.Document):
         'db_alias': 'core',
         'collection': 'alerts'
     }
+    def __str__(s):
+        return """
+        **Subject:** {}
+        
+        **Explanation:** {}
+        
+        **Time:** {}
+        """.format(s.subject, s.explanation,s.time)
+
+    def show(self):
+        return [dcc.Markdown("""
+
+                ** Subject: ** {}
+
+                ** Provided by: **{}
+
+                ** Date: **{} 
+
+                ** Severity: **{}
+
+                ** Explanation: **{}
+
+                ** Detailed explanation: **{}
+                
+                ** Statuses: **{}
+
+                """.format(self.subject, "SerIoT", self.time, self.severity, self.explanation, self.details,str(self.status)),
+                             style={"color": "#4e1175"})]
+    def block(self):
+        print("block")
+    def ok(self):
+        print("ok")
+    def allow(self):
+        print("allow")

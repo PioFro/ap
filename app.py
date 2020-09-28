@@ -4,6 +4,7 @@ import setuptools
 import dash
 import dash_core_components as dcc
 import dash_html_components as html
+import dash_daq as daq
 import networkx as nx
 import plotly.graph_objs as go
 
@@ -23,6 +24,13 @@ import mailer
 
 import requests as rq
 import sys
+import DataProviderService as dps
+import DBDashWrapper as wrap
+import Connection
+from Subject import Subject
+import re
+
+
 
 class DataHolder:
     drawFunction = nx.drawing.layout.random_layout
@@ -37,61 +45,41 @@ class DataHolder:
     activeNodes=[]
     current_selected_node = None
     path = None
-
-    @staticmethod
-    def restoreLog():
-        print("restoring the log")
-        try:
-            DataHolder.safe_log = open("log.safe", "r")
-            for line in DataHolder.safe_log:
-                DataHolder.current_log.write(line)
-                DataHolder.current_log_virtual.append(line.replace("\n",""))
-            DataHolder.current_log.close()
-            DataHolder.safe_log.close()
-            DataHolder.setup = True
-        except:
-            print("xD")
-
-    @staticmethod
-    def backupLog():
-        DataHolder.safe_log = open("log.safe","w")
-        for i in DataHolder.current_log_virtual:
-            DataHolder.safe_log.write(i.replace("\n","")+"\n")
-        DataHolder.safe_log.close()
-
-    @staticmethod
-    def addEvent(event):
-        #if DataHolder.setup:
-            #DataHolder.restoreLog()
-        DataHolder.current_log = open("log.current", "a+")
-        DataHolder.current_log.write(datetime.now().strftime("%d/%m/%Y %H:%M:%S")+" "+event.replace("\n","").replace("\t","").replace("                "," ")+"\n")
-        DataHolder.current_log_virtual.append(datetime.now().strftime("%d/%m/%Y %H:%M:%S")+" "+event+"\n")
-        DataHolder.backupLog()
+    refreshTopology = True
 
     @staticmethod
     def getEvents():
-        DataHolder.current_log = open("log.current","r")
-        toret = []
-        for line in DataHolder.current_log:
-            toret.append(line)
-        toret.reverse()
-        return toret
+        return wrap.getLogDCCWrapped()
 
     @staticmethod
     def restoreState():
-        alertsFile = open("alerts.db","r")
-        for line in alertsFile:
-            alert = Alert(0,0,0)
-            alert.loadJson(json.loads(line))
-            DataHolder.alerts.append(alert)
-        alertsFile.close()
+        DataHolder.alerts = []
+        for alert in dps.getAlerts():
+            if alert not in DataHolder.alerts:
+                DataHolder.alerts.append(alert.id)
 
-    @staticmethod
-    def backupAlerts():
-        f = open("alerts.db","w")
-        for i in DataHolder.alerts:
-            f.write(str(i.jstring).replace("'",'"'))
-        f.close()
+        topology = dps.getSubjects()
+        edgesFile = open("edge1.csv", "w")
+        edgesFile.write("Link,Source,Target\n")
+        nodesFile = open("node1.csv", "w")
+        nodesFile.write("ID,Type,Tag\n")
+        edgesFile2 = open("edge2.csv", "w")
+        edgesFile2.write("Link,Source,Target\n")
+        nodesFile2 = open("node2.csv", "w")
+        nodesFile2.write("ID,Type,Tag\n")
+
+        for device in topology:
+            nodesFile.write("{},{},{}\n".format(device.subject, device.type, device.tag))
+            nodesFile2.write("{},{},{}\n".format(device.subject, device.type, device.tag))
+            for connection in device.connections:
+                edgesFile.write("{},{},{}\n".format(connection.capacity, connection.src, connection.dst))
+                edgesFile2.write("{},{},{}\n".format(connection.capacity, connection.src, connection.dst))
+        edgesFile.close()
+        nodesFile.close()
+        edgesFile2.close()
+        nodesFile2.close()
+
+
 
     @staticmethod
     def getInfoFromString(jstring,type):
@@ -134,15 +122,67 @@ class DataHolder:
         return toret
 
     @staticmethod
-    def mailerInit():
-        f = open("mail-list",'r')
-        for line in f:
-            DataHolder.mails.append(line.replace("\n",""))
-        f.close()
-    @staticmethod
     def send(subject, msg):
-        for mail in DataHolder.mails:
-            mailer.sendMail(mail,subject,msg)
+        for mail in dps.getMails():
+            mailer.sendMail(mail.address,subject,msg)
+
+def topologyChanged(links, hosts, forwarders):
+    subjects = list(dps.getSubjects())
+    for subject in subjects:
+        hostDel = False
+        fwdDel = False
+        for link in links.copy():
+            if link[0] == subject.subject:
+                for con in subject.connections:
+                    if con.src == link[0] and con.dst == link[1]:
+                        links.remove(link)
+        for host in hosts.copy():
+            if host[0]==subject.subject:
+                hosts.remove(host)
+                hostDel = True
+        if not hostDel:
+            for forwarder in forwarders.copy():
+                if forwarder==subject.subject:
+                    forwarders.remove(forwarder)
+                    fwdDel = True
+
+    if len(hosts)==0 and len(forwarders) == 0 and len(links)==0:
+            return False
+
+    if len(hosts)!=0:
+        for host in hosts:
+            cons = []
+            for link in links.copy():
+                if link[0]==host[0]:
+                    con = Connection.Connection()
+                    con.capacity = 1
+                    con.src = link[0]
+                    con.dst = link[1]
+                    cons.append(con)
+                    links.remove(link)
+            dps.addSubject(host[0], host[1], "host", cons)
+    if len(forwarders) != 0:
+        for fwd in forwarders:
+            cons = []
+            for link in links.copy():
+                if link[0]==fwd:
+                    con = Connection.Connection()
+                    con.capacity = 1
+                    con.src = link[0]
+                    con.dst = link[1]
+                    cons.append(con)
+                    links.remove(link)
+            dps.addSubject(fwd, fwd, "fwd", cons)
+    if len(links) != 0:
+        for link in links:
+            sub = dps.getSubjectById(link[0])
+            con = Connection.Connection()
+            con.capacity = 1
+            con.src = sub.subject
+            con.dst = link[1]
+            sub.connections.append(con)
+            sub.save()
+    return True
 
 def getPathBetween(src, dst):
     response = rq.get("{}SRE/path/getbest/{}/{}/".format(DataHolder.ip_ctrl.replace("/v1/", "/rnn/"), src, dst),
@@ -157,14 +197,20 @@ def getPathBetween(src, dst):
 
     return DataHolder.path
 
-def getSubjectInfo():
+def getSubjectInfo(subject: Subject):
     toret = []
     toret.append(dcc.Markdown(d("##### Details on provided subject")))
-    if DataHolder.current_selected_node == None:
-        toret.append(dcc.Markdown(d("**Id: **No id provided")))
-        toret.append(dcc.Markdown(d("**Connected to: **No id provided")))
-        toret.append(dcc.Markdown(d("**Provided by: **No id provided")))
-        toret.append(dcc.Markdown(d("**Other information: **No id provided")))
+    if subject is None:
+        toret.append(dcc.Markdown(d("###### **No id provided**")))
+        return toret
+    if subject.subject is not None:
+        toret.append(dcc.Markdown(d("###### **Identifier: ** \n"+subject.subject)))
+        toret.append(dcc.Markdown(d("###### **Connected to: **")))
+        toret.extend(wrap.getConnectionsDCCWrapped(subject))
+        toret.append(dcc.Markdown(d("###### **Provided by: ** \nSerIoT")))
+        toret.append(dcc.Markdown(d("###### **Other information: **\n"+ subject.tag)))
+    else:
+        toret.append(dcc.Markdown(d("###### **No id provided**")))
     return toret
 
 
@@ -175,22 +221,23 @@ def getOptions():
     return options
 
 def alerts(slider):
+    DataHolder.restoreState()
     ret = []
     ret.append(html.Div([dcc.Interval(
             id='interval-component',
-            interval=1*1000, # in milliseconds
+            interval=1*10000, # in milliseconds
             n_intervals=0
         )]))
     index = 0
     for i in range(len(DataHolder.alerts)):
         if i == 10:
             break
-        if DataHolder.alerts[i].severity>=slider[0]:
+        if dps.getAlert(DataHolder.alerts[i]).severity>=slider[0]:
             tmp =html.Div(
                 children=[
                     dcc.Markdown(d("""
                                           {}
-                                           """.format(str(DataHolder.alerts[i]))),style={"color":"#4e1175"}),
+                                           """.format(str(dps.getAlert(DataHolder.alerts[i])))),style={"color":"#4e1175"}),
                     html.Button('OK',id='Corect' + str(i), n_clicks=0,style={"border-color":"white","color":"white","background-color": "#4e1175"}),
                     html.Button("Once",id="Once" + str(i), n_clicks=0,style={"border-color":"white","color":"white","background-color": "#4e1175"}),
                     html.Button("Block",id="Incorrect" + str(i), n_clicks=0,style={"border-color":"white","color":"white","background-color": "#4e1175"}),
@@ -262,36 +309,58 @@ def obtainTopology():
         return None,None,None
 
 ##############################################################################################################################################################
-def network_graph(yearRange, AccountToSearch):
-    jHosts, jDevices, jLinks = obtainTopology()
-    if jHosts == None or jDevices == None:
+def network_graph(yearRange, AccountToSearch, sdn):
+    if not sdn:
+        if DataHolder.refreshTopology:
+            DataHolder.refreshTopology = False
+            topology = dps.getSubjects()
+            edgesFile = open("edge1.csv","w")
+            edgesFile.write("Link,Source,Target\n")
+            nodesFile = open("node1.csv","w")
+            nodesFile.write("ID,Type,Tag\n")
+
+            for device in topology:
+                nodesFile.write("{},{},{}\n".format(device.subject,device.type,device.tag))
+                for connection in device.connections:
+                    edgesFile.write("{},{},{}\n".format(connection.capacity,connection.src, connection.dst))
+
+            edgesFile.close()
+            nodesFile.close()
+
+
         DataHolder.activeNodes = []
         edge1 = pd.read_csv('edge1.csv')
         node1 = pd.read_csv('node1.csv')
     else:
-        hosts = []
-        devices = []
-        links = []
-        for host in jHosts["hosts"]:
-            hosts.append((host["mac"], host["ipAddresses"][0],host["locations"][0]["elementId"]))
-        for device in jDevices["devices"]:
-            devices.append(device["id"])
-        for link in jLinks["links"]:
-            links.append((link["src"]["device"],link["dst"]["device"]))
-        for host in hosts:
-            links.append((host[0],host[2]))
-        fileEgdes = open("edge2.csv","w")
-        fileEgdes.write("Link,Source,Target\n")
-        fileNodes = open("node2.csv","w")
-        fileNodes.write("ID,Type,Tag\n")
-        for link in links:
-            fileEgdes.write("1,{},{}\n".format(link[0],link[1]))
-        for edge in devices:
-            fileNodes.write("{},fwd,{}\n".format(edge,edge))
-        for edge in hosts:
-            fileNodes.write("{},host,{}\n".format(edge[0], edge[1]))
-        fileEgdes.close()
-        fileNodes.close()
+        jHosts, jDevices, jLinks = obtainTopology()
+        if jHosts == None or jDevices == None or jLinks == None:
+            print("There is no response from the SDN topology provider")
+        else:
+            hosts = []
+            devices = []
+            links = []
+            for host in jHosts["hosts"]:
+                hosts.append((host["mac"], host["ipAddresses"][0],host["locations"][0]["elementId"]))
+            for device in jDevices["devices"]:
+                devices.append(device["id"])
+            for link in jLinks["links"]:
+                links.append((link["src"]["device"],link["dst"]["device"]))
+            for host in hosts:
+                links.append((host[0],host[2]))
+
+            if topologyChanged(links, hosts, devices):
+                topology = dps.getSubjects()
+                fileEgdes = open("edge2.csv","w")
+                fileEgdes.write("Link,Source,Target\n")
+                fileNodes = open("node2.csv","w")
+                fileNodes.write("ID,Type,Tag\n")
+                for device in topology:
+                    fileNodes.write("{},{},{}\n".format(device.subject, device.type, device.tag))
+                    for connection in device.connections:
+                        fileEgdes.write("{},{},{}\n".format(connection.capacity, connection.src, connection.dst))
+                fileEgdes.close()
+                fileNodes.close()
+
         edge1 = pd.read_csv('edge2.csv')
         node1 = pd.read_csv('node2.csv')
 
@@ -468,7 +537,7 @@ app.layout = html.Div([
     #########################Title
     html.Div([html.H1("Autopolicy and PBF Dashboard")],
              className="row",
-             style={'textAlign': "center","color":"#4e1175"}),
+             style={'textAlign': "center","color":"#4e1175","background-color":"#fcfafd"}),
     #############################################################################################define the row
     dcc.Tabs([
         dcc.Tab(label='Visualisation', style={"color": "#4e1175"}, children=[
@@ -549,7 +618,7 @@ app.layout = html.Div([
             html.Div(
                 className="eight columns",
                 children=[dcc.Graph(id="my-graph",
-                                    figure=network_graph(YEAR, ACCOUNT))],
+                                    figure=network_graph(YEAR, ACCOUNT,False))],
             ),
 
             #########################################right side two output component
@@ -584,21 +653,20 @@ app.layout = html.Div([
 
     html.Div(id="pathselectorsrc", children=
              [
-                 dcc.Markdown(d("**Select source**")),
-                 dcc.RadioItems(options=getOptions(),labelStyle={'display': 'inline-block'},id="srcpath")
+                 dcc.Markdown(d("#### Select source")),
+                 dcc.Dropdown(options=getOptions(),id="srcpath")
              ],style={"color":"#4e1175"}),
     html.Div(id="pathselectordst", children=
              [
-                 dcc.Markdown(d("**Select Destination**")),
-                 dcc.RadioItems(options=getOptions(),labelStyle={'display': 'inline-block'},id="dstpath")
+                 dcc.Markdown(d("####  Select destination")),
+                 dcc.Dropdown(options=getOptions(),id="dstpath")
              ],style={"color":"#4e1175"}),
-
-    dcc.Markdown(d("""
-                          #### Logged activity
-                          """), style={"color": "#4e1175"}),
     html.Div(
         className='twelve columns',
         children=[
+        dcc.Markdown(d("""
+                          #### Logged activity
+                          """), style={"color": "#4e1175"}),
             html.Pre(id='log', style=styles['pre']),
             dcc.Interval(
                 id='interval-component-log',
@@ -627,16 +695,22 @@ app.layout = html.Div([
                                 {'label': 'Forwarder', 'value': 'fwd'}
                             ],
                             value='fwd', style={"color": "#4e1175"}),
+                        dcc.Markdown(d("###### Provide the tag of the node \n\n For hosts this is an IP address."),style={"color": "#4e1175"}),
+                        dcc.Input(id="node_tag"
+                                  ,type="text",placeholder="OF forwarder 1 or 10.0.1.1/24", style={"color": "#4e1175","width":"100%"}
+                                  ),
                         html.Div(children=[
                             html.Button('Add node',id='AddNode', n_clicks=0,
                                         style={"border-color":"white","color":"white","background-color": "#4e1175","width":"33.33%"}),
                             html.Button('Edit node',id='EditNode', n_clicks=0,
                                         style={"border-color":"white","color":"white","background-color": "#4e1175","width":"33.33%"}),
-                            html.Button("Delete Node", id="delNode", n_clicks=0,
-                                        style={"border-color":"white","color":"white","display":"inline-block","background-color":"#900C3F","width":"33.34%"})]),
-
-
+                            html.Button("Delete Node", id="DeleteNode", n_clicks=0,
+                                        style={"border-color":"white","color":"white","display":"inline-block","background-color":"#900C3F","width":"33.34%"})])
+                        ,html.Button("Refresh the topology", id="refresh", n_clicks=0,
+                                        style={"border-color":"white","color":"white","background-color":"#4e1175","width":"100%"}),
+                            html.Div(children=[],style={"color": "#4e1175"},id='refresh_txt')
                         ]
+
                     ),
             html.Div(
                 style={"background-color":"#fcfafd"},
@@ -645,17 +719,58 @@ app.layout = html.Div([
                     dcc.Markdown(d("###### List of posible connections: "),style={"color": "#4e1175"}),
 
 dcc.Checklist(
-    options=getOptions(),style={"color": "#4e1175"})
+    options=getOptions(),style={"color": "#4e1175"},id="possible_connections")
 
                 ])
                           ]
             ),
 
             html.Div( className="four columns",
-                children=getSubjectInfo(),style={"color": "#4e1175"})
+                children=getSubjectInfo(Subject()),style={"color": "#4e1175"},id="details-node")
 
 
                 ])
+        ]),
+        dcc.Tab(label='Settings', style={"color": "#4e1175"}, children=
+        [
+            html.Div(
+                        className="four columns",
+                        children=[
+                            dcc.Markdown(d("###### Type in the email you want to add or delete"),style={"color": "#4e1175"}),
+                            dcc.Input(id="email_to_add"
+                                  ,type="text",placeholder="example@example.com", style={"color": "#4e1175","width":"100%"}
+                                  ),
+                            html.Button('Add email',id='AddEmail', n_clicks=0,
+                                        style={"border-color":"white","color":"white","background-color": "#4e1175","width":"50%"}),
+                            html.Button("Delete email", id="delEmail", n_clicks=0,
+                                        style={"border-color":"white","color":"white","display":"inline-block","background-color":"#900C3F","width":"50%"}),
+
+                            dcc.Markdown(d("""
+                            ###### Currently stored mails:
+                            """), style={"color": "#4e1175"}),
+                            html.Div(
+                                className='twelve columns',
+                                id="emails_list",
+                                children=wrap.getMailsDCCWrapped(),
+                                style={"maxHeight": "300px", "overflow-y": "scroll", "background-color": "#fcfafd","color": "#4e1175"}
+                            )
+
+                        ]
+            ),
+            html.Div(
+                        className="four columns",
+                        style={"color": "#4e1175"},
+                        children=[
+                            dcc.Markdown(d("##### All settings")),
+                            dcc.Markdown(d("###### Are you using SDN?")),
+                            daq.ToggleSwitch(id="SDN_ON",label=["Regular","SDN"],size=70,color="#4e1175",value=True),
+                            dcc.Markdown(d("###### Are you using the alert gradation?")),
+                            daq.ToggleSwitch(id="Alert_grada",label=["NO","YES"],size=70,color="#4e1175",value=True)
+
+
+                        ]
+                    )
+
         ])
 
 
@@ -664,6 +779,30 @@ dcc.Checklist(
 
 ###################################callback for left side components
 ################################callback for right side components
+@app.callback(dash.dependencies.Output('emails_list','children'),
+              [
+                  dash.dependencies.Input('AddEmail','n_clicks'),
+                  dash.dependencies.Input('delEmail','n_clicks'),
+                  dash.dependencies.Input('email_to_add','value'),
+                  dash.dependencies.Input('interval-component', 'n_intervals')])
+def emailsCallback(add, remove,text,interval):
+    changed_id = [p['prop_id'] for p in dash.callback_context.triggered][0]
+    if "AddEmail" in changed_id:
+        try:
+            dps.addMail(text)
+        except:
+            tmp = wrap.getMailsDCCWrapped()
+            tmp.append(dcc.Markdown(d("** {} is a not a valid email. **".format(text))))
+            return tmp
+    if "delEmail" in changed_id:
+        try:
+            dps.delMail(text)
+        except:
+            tmp = wrap.getMailsDCCWrapped()
+            tmp.append(dcc.Markdown(d("** {} is not in the database - it cannot be deleted **".format(text))))
+            return tmp
+    return wrap.getMailsDCCWrapped()
+
 @app.callback(
     dash.dependencies.Output('hover-data', 'children'),
     [dash.dependencies.Input('my-graph', 'clickData')])
@@ -699,18 +838,22 @@ def display_hover_data(hoverData):
             return dcc.Markdown(d("Nothing selected"),style={"color":"#4e1175"})
     except:
         return dcc.Markdown(d("Nothing selected"), style={"color": "#4e1175"})
-    #print(response.text)
-    #DataHolder.addEvent("Details for the {} subject.".format(toret))
 
     return DataHolder.getInfoFromString(response.text,type)
 
 @app.callback(
     dash.dependencies.Output('my-graph', 'figure'),
-    [dash.dependencies.Input('demo-dropdown', 'value'),dash.dependencies.Input('interval-component-log', 'n_intervals'),
-     dash.dependencies.Input('srcpath','value'),dash.dependencies.Input('dstpath','value')])
-def update_output123(value,interval,src,dst):
+    [
+        dash.dependencies.Input('demo-dropdown', 'value'),
+        dash.dependencies.Input('interval-component-log', 'n_intervals'),
+        dash.dependencies.Input('srcpath','value'),
+        dash.dependencies.Input('dstpath','value'),
+        dash.dependencies.Input('SDN_ON','value')
 
-    if src != dst and src is not None and dst is not None:
+    ])
+def update_output123(value,interval,src,dst,sdn):
+
+    if src != dst and src is not None and dst is not None and sdn:
         getPathBetween(src, dst)
     else:
         DataHolder.path = None
@@ -728,29 +871,28 @@ def update_output123(value,interval,src,dst):
     if value=="f":
         DataHolder.drawFunction = nx.drawing.layout.fruchterman_reingold_layout
     #print("update")
-    return network_graph(YEAR,ACCOUNT)
+    return network_graph(YEAR,ACCOUNT,sdn)
 
 @server.route("/alert/", methods=['POST'])
 def postAlert():
     jBody = request.json
     try:
-        toSend = "We are sending this email to let you know that the Autopolicy mechanism detected an Alert - some of your devices are not" \
-                 "behaving the way they should. Below you will find the details of the alert. If that's a false alert you can" \
-                 "access your autopolicy dashboard and let us know by clicking false alert button for that alert. Here are the details" \
-                 " for that alert \n\n Explanation: {} \n\n Severity: {}\n\n Device identification number: {} \n\n Expanded explanation: {}\n\n Time: {}\n\nKind regards," \
-                 "\nAutopolicy Provider".format(jBody["explanation"],jBody["severity"],jBody["subject"],jBody["details"],datetime.now().strftime("%d/%m/%Y %H:%M:%S"))
-        DataHolder.send("Received an alert from the AP",str(toSend))
-        a = Alert(0,0,0)
-        a.loadJson(jBody)
-        fAlerts = open("alerts.db","a+")
-        fAlerts.write(str(jBody).replace("'",'"')+"\n")
-        fAlerts.close()
+        success, reason, id = dps.addAlert(jBody["explanation"], jBody["subject"], int(jBody["severity"]), details=jBody["details"])
+        if success:
+            toSend = "We are sending this email to let you know that the Autopolicy mechanism detected an Alert - some of your devices are not" \
+                     "behaving the way they should. Below you will find the details of the alert. If that's a false alert you can" \
+                     "access your autopolicy dashboard and let us know by clicking false alert button for that alert. Here are the details" \
+                     " for that alert \n\n Explanation: {} \n\n Severity: {}\n\n Device identification number: {} \n\n Expanded explanation: {}\n\n Time: {}\n\nKind regards," \
+                     "\nAutopolicy Provider".format(jBody["explanation"], jBody["severity"], jBody["subject"],
+                                                    jBody["details"], datetime.now().strftime("%d/%m/%Y %H:%M:%S"))
+            DataHolder.send("Received an alert from the AP", str(toSend))
+        else:
+            return "NOT OK"
 
     except:
-        return "Provided JSON was not corect"
-
-    DataHolder.alerts.append(a)
-    DataHolder.addEvent("Added the alert: "+str(a)+"Waiting for the user confirmation.")
+        dps.addEvent("Provided JSON was not correct: " + jBody,"admin")
+        return "NOT OK"
+    DataHolder.alerts.append(id)
     return 'OK'
 
 @app.callback(dash.dependencies.Output('alerts-list', 'children'), [dash.dependencies.Input('interval-component', 'n_intervals'),dash.dependencies.Input('my-range-slider','value')])
@@ -770,15 +912,18 @@ def okbuttons(*args):
             index = i
             break
     if index != -1:
-        DataHolder.alerts[index].ok()
-        DataHolder.addEvent("Accepted the mitigation of the alert: " + str(DataHolder.alerts[index]))
+        alert = dps.getAlert(DataHolder.alerts[index])
+        alert.ok()
+        dps.changeState(alert.id, "Mitigation was correct.",resolved=True)
+
+        dps.addEvent("Accepted the mitigation of the alert: " + str(DataHolder.alerts[index]), str(DataHolder.alerts[index]))
 
         try:
             toSend = "The alert was stated as a ok alert. The mitigation action taken by that alert will be carried on." \
                      "The OK button was pressed " \
                      "for the alert \n\n Explanation: {} \n\n Severity: {}\n\n Device identification number: {} \n\n Expanded explanation: {}\n\n Time: {}\n\nKind regards," \
-                     "\nAutopolicy Provider".format(DataHolder.alerts[index].explanation, DataHolder.alerts[index].severity, DataHolder.alerts[index].id,
-                                                    DataHolder.alerts[index].details, datetime.now().strftime("%d/%m/%Y %H:%M:%S"))
+                     "\nAutopolicy Provider".format(alert.explanation, alert.severity, alert.subject,
+                                                    alert.details, datetime.now().strftime("%d/%m/%Y %H:%M:%S"))
             DataHolder.send("Received an alert from the AP", str(toSend))
         except:
             return ""
@@ -793,15 +938,16 @@ def allowonce(*args):
             index = i
             break
     if index != -1:
-        DataHolder.alerts[index].allow()
-        DataHolder.addEvent("Allowed once for the alert: "+str(DataHolder.alerts[index]))
-
+        alert = dps.getAlert(DataHolder.alerts[index])
+        alert.allow()
+        dps.addEvent("Allowed once for the alert: "+str(DataHolder.alerts[index]),str(DataHolder.alerts[index]))
+        dps.changeState(alert.id, "Mitigation was correct but allowed once", resolved=True)
         try:
             toSend = "The alert was allowed only once. The mitigation action taken by that alert will be carried on after today." \
                      "The Allow button was pressed " \
                      "for the alert \n\n Explanation: {} \n\n Severity: {}\n\n Device identification number: {} \n\n Expanded explanation: {}\n\n Time: {}\n\nKind regards," \
-                     "\nAutopolicy Provider".format(DataHolder.alerts[index].explanation, DataHolder.alerts[index].severity, DataHolder.alerts[index].id,
-                                                    DataHolder.alerts[index].details, datetime.now().strftime("%d/%m/%Y %H:%M:%S"))
+                     "\nAutopolicy Provider".format(alert.explanation, alert.severity, alert.subject,
+                                                    alert.details, datetime.now().strftime("%d/%m/%Y %H:%M:%S"))
             DataHolder.send("Received an alert from the AP", str(toSend))
         except:
             return ""
@@ -818,21 +964,20 @@ def allow(*args):
             index = i
             break
     if index != -1:
-        DataHolder.alerts[index].block()
-        DataHolder.addEvent("Allowed all the time for the alert: " + str(DataHolder.alerts[index]))
-
+        alert = dps.getAlert(DataHolder.alerts[index])
+        alert.block()
+        dps.changeState(DataHolder.alerts[index],"Added to the profile",resolved=True)
         try:
             toSend = "The alert was marked as an invalid alert. The mitigation action taken by that alert will NOT be carried out." \
                      "The Block button was pressed " \
                      "for the alert \n\n Explanation: {} \n\n Severity: {}\n\n Device identification number: {} \n\n Expanded explanation: {}\n\n Time: {}\n\nKind regards," \
-                     "\nAutopolicy Provider".format(DataHolder.alerts[index].explanation, DataHolder.alerts[index].severity, DataHolder.alerts[index].id,
-                                                    DataHolder.alerts[index].details, datetime.now().strftime("%d/%m/%Y %H:%M:%S"))
+                     "\nAutopolicy Provider".format(alert.explanation, alert.severity, alert.subject,
+                                                    alert.details, datetime.now().strftime("%d/%m/%Y %H:%M:%S"))
             DataHolder.send("Received an alert from the AP", str(toSend))
         except:
             return ""
 
         DataHolder.alerts.remove(DataHolder.alerts[index])
-    #print(str(args))
     return ""
 
 @app.callback(dash.dependencies.Output('show', 'children'),getShowButtons())
@@ -844,18 +989,85 @@ def show(*args):
             break
     data = DataHolder.currentAlert
     if index != -1:
-        data = DataHolder.alerts[index].show()
-        DataHolder.addEvent("See the details of the alert: " + str(DataHolder.alerts[index]))
+        dps.changeState(DataHolder.alerts[index],"Seen")
+        data = dps.getAlert(DataHolder.alerts[index]).show()
         DataHolder.currentAlert = data
-        ##DataHolder.alerts.remove(DataHolder.alerts[index])
-    #print(str(args))
     return data
 
+@app.callback(dash.dependencies.Output('refresh_txt','children'),[dash.dependencies.Input('refresh','n_clicks')])
+def refreshTopo(n):
+    changed_id = [p['prop_id'] for p in dash.callback_context.triggered][0]
+    if "refresh" in changed_id:
+        dps.delSubjects()
+        return dcc.Markdown(d("""**Topology refreshed**"""))
+    return ""
+
+@app.callback(dash.dependencies.Output('details-node','children'),
+              [
+                  dash.dependencies.Input('AddNode','n_clicks'),
+                  dash.dependencies.Input('EditNode','n_clicks'),
+                  dash.dependencies.Input('DeleteNode','n_clicks'),
+                  dash.dependencies.Input('possible_connections','value'),
+                  dash.dependencies.Input('type-dropdown','value'),
+                  dash.dependencies.Input('node_id','value'),
+                  dash.dependencies.Input('node_tag','value')
+
+              ])
+def addNode(buttonAdd,buttonEdit, buttonDelete, connections,type,iden,tag):
+    changed_id = [p['prop_id'] for p in dash.callback_context.triggered][0]
+    OfHexPattern = "of:[0-9a-fA-F]{16}"
+    MACAddresPattern ="([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}"
+    if "AddNode" in changed_id:
+        if iden == None:
+            iden = ""
+        if re.match(OfHexPattern,iden) or re.match(MACAddresPattern, iden):
+            if type != None:
+                if tag != None:
+                    if len(connections)!= 0 or len(getOptions())==0:
+                        cons = []
+                        for con in connections:
+                            link = Connection.Connection()
+                            link.src = iden
+                            link.dst = con
+                            link.capacity = 1
+                            cons.append(link)
+                        dps.addSubject(iden, tag,type,cons)
+                        DataHolder.refreshTopology = True
+                        return getSubjectInfo(dps.getSubjectById(iden))
+                    else:
+                        return dcc.Markdown(d("""
+                                            ###### **Node must have at least one connection**
+                                            """), style={"color": "#900C3F"})
+                else:
+                    return dcc.Markdown(d("""
+                                        ###### **Provide a tag for the added node**
+                                        """), style={"color": "#900C3F"})
+
+            else:
+                return dcc.Markdown(d("""
+                            ###### **Provide a type for the added node**
+                            """), style={"color": "#900C3F"})
+
+        else:
+            return dcc.Markdown(d("""
+            ###### Provided ID to add was incorrect. 
+            
+            ###### To add forwarder comply with format
+             
+            ###### **of:0123456789abcdef**
+            
+            ###### To add host comply with format
+            
+            ###### **01:23:45:67:89:ab**
+            """),style={"color":"#900C3F"})
+    return getSubjectInfo(dps.getSubjectById(iden))
+
+
+
+
+
 if __name__ == '__main__':
-    DataHolder.restoreLog()
+    dps.global_init()
     DataHolder.restoreState()
-    DataHolder.mailerInit()
     DataHolder.ip_ctrl = sys.argv[1]
     app.run_server(debug=True,host="0.0.0.0",port=1111)
-    DataHolder.backupLog()
-    DataHolder.backupAlerts()

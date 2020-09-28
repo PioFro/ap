@@ -44,19 +44,3 @@ class Alert:
         print("allowe once"+str(self))
     def block(self):
         print("Allowed all times")
-    def show(self):
-        return [dcc.Markdown("""
-        
-        ** Subject: ** {}
-        
-        ** Provided by: **{}
-        
-        ** Date: **{} 
-        
-        ** Severity: **{}
-        
-        ** Explanation: **{}
-        
-        ** Detailed explanation: **{}
-        
-        """.format(self.subject, "SerIoT", self.time,self.severity,self.explanation, self.details), style={"color": "#4e1175"})]

@@ -3,7 +3,7 @@ import datetime
 
 
 class Status(mongoengine.EmbeddedDocument):
-    current = mongoengine.StringField(required=True, default="Not resolved")
+    current = mongoengine.StringField(required=True, default="Received")
     time = mongoengine.DateTimeField(default=datetime.datetime.now)
     previous = mongoengine.ListField()
 
