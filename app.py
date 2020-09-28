@@ -216,8 +216,8 @@ def getSubjectInfo(subject: Subject):
 
 def getOptions():
     options = []
-    for node in DataHolder.activeNodes:
-        options.append({'label':node,'value':node})
+    for node in dps.getSubjects():
+        options.append({'label':node.subject,'value':node.subject})
     return options
 
 def alerts(slider):
@@ -225,7 +225,7 @@ def alerts(slider):
     ret = []
     ret.append(html.Div([dcc.Interval(
             id='interval-component',
-            interval=1*10000, # in milliseconds
+            interval=1*1000, # in milliseconds
             n_intervals=0
         )]))
     index = 0
@@ -326,9 +326,6 @@ def network_graph(yearRange, AccountToSearch, sdn):
 
             edgesFile.close()
             nodesFile.close()
-
-
-        DataHolder.activeNodes = []
         edge1 = pd.read_csv('edge1.csv')
         node1 = pd.read_csv('node1.csv')
     else:
@@ -368,6 +365,7 @@ def network_graph(yearRange, AccountToSearch, sdn):
 
     # filter the record by datetime, to enable interactive control through the input box
     #edge1['Datetime'] = "" # add empty Datetime column to edge1 dataframe
+    DataHolder.activeNodes = []
     accountSet=set() # contain unique account
     for index in range(0,len(edge1)):
         accountSet.add(edge1['Source'][index])
@@ -670,7 +668,7 @@ app.layout = html.Div([
             html.Pre(id='log', style=styles['pre']),
             dcc.Interval(
                 id='interval-component-log',
-                interval=20 * 1000,  # in milliseconds
+                interval=1 * 1000,  # in milliseconds
                 n_intervals=0)
         ],
         style={"maxHeight": "190px", "overflow-y": "scroll","background-color":"#fcfafd" })
@@ -717,9 +715,13 @@ app.layout = html.Div([
                 className="four columns",
                 children=[html.Div(className="twelve columns", children=[
                     dcc.Markdown(d("###### List of posible connections: "),style={"color": "#4e1175"}),
+                    dcc.Interval(
+                id='interval-component2',
+                interval=1 * 1000,  # in milliseconds
+                n_intervals=0),
 
 dcc.Checklist(
-    options=getOptions(),style={"color": "#4e1175"},id="possible_connections")
+    options=[],style={"color": "#4e1175"},id="possible_connections")
 
                 ])
                           ]
@@ -1023,7 +1025,11 @@ def addNode(buttonAdd,buttonEdit, buttonDelete, connections,type,iden,tag):
         if re.match(OfHexPattern,iden) or re.match(MACAddresPattern, iden):
             if type != None:
                 if tag != None:
-                    if len(connections)!= 0 or len(getOptions())==0:
+                    if connections==None:
+                        dps.addSubject(iden, tag, type, [])
+                        DataHolder.refreshTopology = True
+                        return getSubjectInfo(dps.getSubjectById(iden))
+                    if len(connections)!= 0:
                         cons = []
                         for con in connections:
                             link = Connection.Connection()
@@ -1060,11 +1066,32 @@ def addNode(buttonAdd,buttonEdit, buttonDelete, connections,type,iden,tag):
             
             ###### **01:23:45:67:89:ab**
             """),style={"color":"#900C3F"})
+    if "DeleteNode" in changed_id:
+        if iden == None:
+            iden = ""
+        if re.match(OfHexPattern,iden) or re.match(MACAddresPattern, iden):
+            dps.delSubject(iden)
+            return dcc.Markdown(d("""###### **Device with identifier {} was deleted.**
+                   """.format(iden)), style={"color": "#900C3F"})
+        else:
+            return dcc.Markdown(d("""
+                   ###### Provided ID to add was incorrect. 
+
+                   ###### To add forwarder comply with format
+
+                   ###### **of:0123456789abcdef**
+
+                   ###### To add host comply with format
+
+                   ###### **01:23:45:67:89:ab**
+                   """), style={"color": "#900C3F"})
+
     return getSubjectInfo(dps.getSubjectById(iden))
 
 
-
-
+@app.callback(dash.dependencies.Output('possible_connections','options'),[dash.dependencies.Input('interval-component2', 'n_intervals')])
+def updateOptions(interval):
+    return getOptions()
 
 if __name__ == '__main__':
     dps.global_init()

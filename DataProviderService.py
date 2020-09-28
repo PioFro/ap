@@ -12,13 +12,11 @@ class Data:
 
 def global_init():
     if not Data.INIT:
-        print("global init")
         mongoengine.register_connection(alias='core', name='autopolicy')
-        print("success")
         Data.INIT = True
         addEvent("Connected to the database.","admin")
 
-def getSubjectById(sub: str):
+def getSubjectById(sub: str)->Subject:
     if Data.INIT:
         subject = Subject.objects().filter(subject=sub).first()
         return subject
@@ -26,7 +24,7 @@ def getSubjectById(sub: str):
         global_init()
         return getSubjectById(sub)
 
-def getSubjects():
+def getSubjects()->[Subject]:
     if Data.INIT:
         return Subject.objects()
     else:
@@ -36,10 +34,12 @@ def getSubjects():
 def delSubjects():
     if Data.INIT:
         for sub in Subject.objects():
+            addEvent("Device {} was deleted.".format(sub.subject),"admin")
             sub.delete()
     else:
         global_init()
         delSubjects()
+
 
 # add details by using keyword details="details"
 def addAlert(exp, sub, sev, **kwargs):
@@ -76,10 +76,48 @@ def addSubject(sub, tag, type, conections: []):
         subject.connections = conections
         subject.save()
         addEvent("Added subject: {} to the database.".format(sub), str(subject.id))
+        links = []
+        for connnection in subject.connections:
+            links.append(connnection.dst)
+        addConnectionsTo(sub,links)
+
     else:
         global_init()
         addSubject(sub,tag,type,conections)
 
+def delSubject(sub):
+    if Data.INIT:
+        toDel = getSubjectById(sub)
+        addEvent("Device {} was deleted.".format(toDel.subject), "admin")
+        links = []
+        for connnection in toDel.connections:
+            links.append(connnection.dst)
+        delConnectionsTo(sub,links)
+        toDel.delete()
+    else:
+        global_init()
+        delSubject(sub)
+
+def delConnectionsTo(sub, links):
+    for subject in getSubjects():
+        if subject.subject!=sub and subject.subject in links:
+            for connection in subject.connections.copy():
+                if connection.dst == sub:
+                    addEvent("Connection between {} and {} was deleted.".format(sub,connection.src), "admin")
+                    subject.connections.remove(connection)
+                    break
+            subject.save()
+
+def addConnectionsTo(sub,links):
+    for subject in getSubjects():
+        if subject.subject!=sub and subject.subject in links:
+            con = Connection()
+            con.src=subject.subject
+            con.dst=sub
+            con.capacity = 1
+            subject.connections.append(con)
+            addEvent("Connection between {} and {} added automatically due to the lack of such in {}".format(sub,subject.subject,subject.subject),str(subject.id))
+            subject.save()
 
 def getAlerts():
     if Data.INIT:
