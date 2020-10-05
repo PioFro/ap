@@ -9,3 +9,4 @@ colour
 Flask
 yagmail
 mongoengine
+dash_daq

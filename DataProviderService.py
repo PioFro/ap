@@ -6,13 +6,17 @@ from Mails import Mail
 from Status import Status
 from Subject import Subject
 from Event import Event
+import sys
 
 class Data:
     INIT = False
+    mongoip = "NotYetDeclared"
 
 def global_init():
     if not Data.INIT:
-        mongoengine.register_connection(alias='core', name='autopolicy')
+        if Data.mongoip == "NotYetDeclared":
+            Data.mongoip = sys.argv[2]
+        mongoengine.register_connection(alias='core', name='autopolicy',host=Data.mongoip)
         Data.INIT = True
         addEvent("Connected to the database.","admin")
 
