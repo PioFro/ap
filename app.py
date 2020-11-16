@@ -35,62 +35,65 @@ from DataHolder import DataHolder
 
 
 def topologyChanged(links, hosts, forwarders):
-    subjects = list(dps.getSubjects())
-    for subject in subjects:
-        hostDel = False
-        fwdDel = False
-        for link in links.copy():
-            if link[0] == subject.subject:
-                for con in subject.connections:
-                    if con.src == link[0] and con.dst == link[1]:
+    try:
+        subjects = list(dps.getSubjects())
+        for subject in subjects:
+            hostDel = False
+            fwdDel = False
+            for link in links.copy():
+                if link[0] == subject.subject:
+                    for con in subject.connections:
+                        if con.src == link[0] and con.dst == link[1]:
+                            links.remove(link)
+            for host in hosts.copy():
+                if host[0]==subject.subject:
+                    hosts.remove(host)
+                    hostDel = True
+            if not hostDel:
+                for forwarder in forwarders.copy():
+                    if forwarder==subject.subject:
+                        forwarders.remove(forwarder)
+                        fwdDel = True
+
+        if len(hosts)==0 and len(forwarders) == 0 and len(links)==0:
+                return False
+
+        if len(hosts)!=0:
+            for host in hosts:
+                cons = []
+                for link in links.copy():
+                    if link[0]==host[0]:
+                        con = Connection.Connection()
+                        con.capacity = 1
+                        con.src = link[0]
+                        con.dst = link[1]
+                        cons.append(con)
                         links.remove(link)
-        for host in hosts.copy():
-            if host[0]==subject.subject:
-                hosts.remove(host)
-                hostDel = True
-        if not hostDel:
-            for forwarder in forwarders.copy():
-                if forwarder==subject.subject:
-                    forwarders.remove(forwarder)
-                    fwdDel = True
-
-    if len(hosts)==0 and len(forwarders) == 0 and len(links)==0:
-            return False
-
-    if len(hosts)!=0:
-        for host in hosts:
-            cons = []
-            for link in links.copy():
-                if link[0]==host[0]:
-                    con = Connection.Connection()
-                    con.capacity = 1
-                    con.src = link[0]
-                    con.dst = link[1]
-                    cons.append(con)
-                    links.remove(link)
-            dps.addSubject(host[0], host[1], "host", cons)
-    if len(forwarders) != 0:
-        for fwd in forwarders:
-            cons = []
-            for link in links.copy():
-                if link[0]==fwd:
-                    con = Connection.Connection()
-                    con.capacity = 1
-                    con.src = link[0]
-                    con.dst = link[1]
-                    cons.append(con)
-                    links.remove(link)
-            dps.addSubject(fwd, fwd, "fwd", cons)
-    if len(links) != 0:
-        for link in links:
-            sub = dps.getSubjectById(link[0])
-            con = Connection.Connection()
-            con.capacity = 1
-            con.src = sub.subject
-            con.dst = link[1]
-            sub.connections.append(con)
-            sub.save()
-    return True
+                dps.addSubject(host[0], host[1], "host", cons)
+        if len(forwarders) != 0:
+            for fwd in forwarders:
+                cons = []
+                for link in links.copy():
+                    if link[0]==fwd:
+                        con = Connection.Connection()
+                        con.capacity = 1
+                        con.src = link[0]
+                        con.dst = link[1]
+                        cons.append(con)
+                        links.remove(link)
+                dps.addSubject(fwd, fwd, "fwd", cons)
+        if len(links) != 0:
+            for link in links:
+                sub = dps.getSubjectById(link[0])
+                con = Connection.Connection()
+                con.capacity = 1
+                con.src = sub.subject
+                con.dst = link[1]
+                sub.connections.append(con)
+                sub.save()
+        return True
+    except:
+        return False
 
 def getPathBetween(src, dst):
     response = rq.get("{}SRE/path/getbest/{}/{}/".format(DataHolder.ip_ctrl.replace("/v1/", "/rnn/"), src, dst),
