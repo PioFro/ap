@@ -30,8 +30,36 @@ import Connection
 from Subject import Subject
 import re
 from DataHolder import DataHolder
+from Connector import Connector
 
 
+def getFigureWithOptions(type = None, id=None, param = None):
+    tr = []
+    x=[]
+    y=[]
+    if type is None or id is None or param is None:
+        a = random.random()
+        title = "Placeholder"
+        for i in range(-1000,1000):
+            x.append(i)
+            y.append(a*i*i + 2*i +1)
+        tr.append(go.Scatter(x=x, y=y))
+    else:
+        title = "{} for {} with id {}".format(param,type,id)
+        x,y = Connector.GetLatestInfo(type,id,param)
+        tr.append(go.Scatter(x=x, y=y))
+
+    lay = go.Layout(title=title, showlegend=False,
+                            margin={'b': 40, 'l': 40, 'r': 40, 't': 40},
+                            xaxis={'showgrid': True, 'zeroline': True, 'showticklabels': True},
+                            yaxis={'showgrid': True, 'zeroline': True, 'showticklabels': True},
+                            height=400
+                            )
+    figure2 = {
+        "data": tr,
+        "layout": lay}
+    DataHolder.tmp_fig = figure2
+    return figure2
 
 
 def topologyChanged(links, hosts, forwarders):
@@ -125,10 +153,20 @@ def getSubjectInfo(subject: Subject):
     return toret
 
 
-def getOptions():
+def getOptions(more = False):
     options = []
+    keys = ""
     for node in dps.getSubjects():
         options.append({'label':node.subject,'value':node.subject})
+        if more:
+            for permu in dps.getSubjects():
+                if permu.subject != node.subject and str(permu.subject).count(":")<3 and str(node.subject).count(":")<3:
+                    options.append({"label":"{} to {}".format(permu.subject, node.subject), "value":"{} to {}".format(permu.subject, node.subject)})
+            for con in node.connections:
+                if  "{}-{}".format(con.src,con.dst) not in keys:
+                    keys+="{}-{}".format(con.src,con.dst)+" "
+                    opt={"label":"{}-{}".format(con.src,con.dst),"value":"{}-{}".format(con.src,con.dst)}
+                    options.append(opt)
     return options
 
 def alerts(slider):
@@ -684,7 +722,54 @@ dcc.Checklist(
                         ]
                     )
 
-        ])
+        ]),
+        dcc.Tab(label='Statistics visualisation', style={"color": "#4e1175"}, children=
+        [
+        html.Div(
+                className="four columns",
+                style={"color": "#4e1175"},
+                        children=[
+                            dcc.Markdown(d("##### What do you want to visualize? ")),
+                            dcc.Dropdown(
+                                id='chart-subject',
+                                options=[
+                                    {'label': 'Forwarder', 'value': 'fwd'},
+                                    {'label': 'Path', 'value': 'path'},
+                                    {'label': 'Host', 'value': 'host'},
+                                    {'label': 'Link', 'value': 'link'}
+                                ],
+                                value=1,style={"color":"#4e1175"}
+                            ),
+                            dcc.Markdown(d("##### Select the subject ")),
+                            html.Div(
+                                id="subject-dropdown",
+                                children = [dcc.Dropdown(id="subject-dropdown-value")]
+                            ),
+                            dcc.Markdown(d("##### Select what do you want to visualize")),
+                            html.Div(
+                                id="value-visu-dropdown",
+                                children = [dcc.Dropdown(id="value-visu-dropdown-value")]
+                            ),
+                            html.Div(
+                                id="do-visualize",
+                                children = [html.Button('VIZUALIZE',id='do-visualize-button', n_clicks=0,style={"border-color":"#4e1175","color":"#4e1175","background-color": "white"},hidden=True)]
+                            )
+                            ]
+
+        ),
+        html.Div(
+            className="eight columns",
+            id="graph-visu-continous",
+            children=[dcc.Graph(id="my-graph-2",figure=getFigureWithOptions()),
+                      dcc.Interval(
+                          id='interval-component-graph',
+                          interval=Connector.updateTime * 1000,  # in milliseconds
+                          n_intervals=0
+                      )
+                      ]
+
+                 )
+            ])
 
 
 
@@ -1004,7 +1089,109 @@ def addNode(buttonAdd,buttonEdit, buttonDelete, connections,type,iden,tag):
 def updateOptions(interval):
     return getOptions()
 
+@app.callback(dash.dependencies.Output('do-visualize','children'),
+              [
+                  dash.dependencies.Input('chart-subject','value'),
+                  dash.dependencies.Input("value-visu-dropdown-value",'value'),
+                  dash.dependencies.Input("subject-dropdown-value",'value')
+                ])
+def doVisualizeEnable(subject,what,id):
+    if subject!=None and what!=None and id!=None:
+        return html.Button('VISUALIZE {} FOR {}'.format(what,id),id='do-visualize-button', n_clicks=0,style={"border-color":"white","color":"white","background-color": "#4e1175"})
+    return html.Button('VIZUALIZE',id='do-visualize-button', n_clicks=0,style={"border-color":"#4e1175","color":"#4e1175","background-color": "white"},hidden=True)
+@app.callback(dash.dependencies.Output('value-visu-dropdown','children'),[dash.dependencies.Input('chart-subject','value')])
+def subSelectedValues(subject):
+    if subject == "fwd":
+        return dcc.Dropdown(id="value-visu-dropdown-value",options=
+        [
+            {"label":"Number of packets per second","value":"packets"},
+            {"label": "Number of bytes per second", "value": "bytes"},
+            {"label": "Number of flows", "value": "flows"},
+            {"label": "Average delay to node", "value": "delay"},
+            {"label": "Current energy consumption", "value": "energy"}
+        ], value="packets")
+    if subject == "path":
+        return dcc.Dropdown(id="value-visu-dropdown-value",options=
+        [
+            {"label":"Number of packets per second","value":"packets"},
+            {"label": "Number of bytes per second", "value": "bytes"},
+            {"label": "Packet loss", "value": "packetloss"},
+            {"label": "Average delay", "value": "delay"},
+            {"label": "Current energy consumption", "value": "energy"}
+        ])
+    if subject == "link":
+        return dcc.Dropdown(id="value-visu-dropdown-value",options=
+        [
+            {"label":"Number of packets per second","value":"packets"},
+            {"label": "Number of bytes per second", "value": "bytes"},
+            {"label": "Packet loss", "value": "packetloss"},
+            {"label": "Average delay", "value": "delay"}
+        ])
+    if subject == "host":
+        return dcc.Dropdown(id="value-visu-dropdown-value",options=
+        [
+            {"label":"Number of packets per second in","value":"inpackets"},
+            {"label": "Number of packets per second out", "value": "outpackets"},
+            {"label": "Number of bytes per second in", "value": "inbytes"},
+            {"label": "Number of bytes per second out", "value": "outbytes"}
+        ])
+    return dcc.Dropdown(id="value-visu-dropdown-value",options=[])
+@app.callback(dash.dependencies.Output('subject-dropdown','children'),[dash.dependencies.Input('chart-subject','value')])
+def subjectSelected(subject):
+    opt = getOptions(True)
+    if subject=="fwd":
+        i = 0
+        for o in opt.copy():
+            if "of:" in o["label"] and o["label"].count("of:")==1 and "-" not in o["label"] and " to " not in o["label"]:
+                continue
+            else:
+                opt.remove(o)
+            i+=1
+    if subject == "host":
+        for o in opt.copy():
+            if o["label"].count(":") > 3 and "-" not in o["label"] and " to " not in o["label"]:
+                continue
+            else:
+                opt.remove(o)
+    if subject == "link":
+        for o in opt.copy():
+            if "-" in o["label"]and " to " not in o["label"]:
+                continue
+            else:
+                opt.remove(o)
+    if subject == "path":
+        for o in opt.copy():
+            if " to " in o["label"]:
+                continue
+            else:
+                opt.remove(o)
+
+    return dcc.Dropdown(id="subject-dropdown-value",
+                            options=opt,
+                            style={"color": "#4e1175"},value=1
+                            )
+
+@app.callback(dash.dependencies.Output('my-graph-2','figure'),
+              [
+                dash.dependencies.Input('do-visualize-button','n_clicks'),
+                dash.dependencies.Input('chart-subject','value'),
+                dash.dependencies.Input("subject-dropdown-value",'value'),
+                dash.dependencies.Input("value-visu-dropdown-value", 'value'),
+                  dash.dependencies.Input('interval-component-graph',"n_intervals")
+              ])
+def createGraph(clicks,type,id,param,inter):
+    changed_id = [p['prop_id'] for p in dash.callback_context.triggered][0]
+    print(changed_id)
+    if changed_id=="do-visualize-button.n_clicks":
+        return getFigureWithOptions(type,id,param)
+
+    if changed_id=="interval-component-graph.n_intervals":
+        return getFigureWithOptions(type,id,param)
+    return DataHolder.tmp_fig
+
+
 if __name__ == '__main__':
+    DataHolder.tmp_fig = getFigureWithOptions()
     DataHolder.ip_ctrl = sys.argv[1]
     dps.Data.mongoip=sys.argv[2]
     DataHolder.out_ip=sys.argv[3]

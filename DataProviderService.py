@@ -214,3 +214,12 @@ def addEvent(description, subId):
 
 def getEvents():
     return Event.objects()
+
+def getHostsConnectedToForwarder(id)->[]:
+    ret = []
+    hosts = Subject.objects().filter(type="host")
+    for host in hosts:
+        for con in host.connections:
+            if con.dst == id:
+                ret.append((host.subject, host.tag))
+    return ret

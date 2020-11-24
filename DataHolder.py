@@ -22,6 +22,7 @@ class DataHolder:
     path = None
     refreshTopology = True
     out_ip=sys.argv[3]
+    tmp_fig=None
 
     @staticmethod
     def getEvents():
