@@ -243,13 +243,13 @@ def obtainTopology():
     try:
         jHosts = None
         jDevices = None
-        #print("{}hosts".format(DataHolder.ip_ctrl))
+        print("{}hosts".format(DataHolder.ip_ctrl))
         responseHosts = rq.get("{}hosts".format(DataHolder.ip_ctrl), auth=HTTPBasicAuth("karaf", "karaf"))
-        #print(responseHosts.text)
+        print("Response Hosts: "+ responseHosts.text)
         responseDevice = rq.get("{}devices".format(DataHolder.ip_ctrl),auth=HTTPBasicAuth("karaf","karaf"))
-        #print(responseDevice.text)
+        print("Response Devices"+ responseDevice.text)
         responseLinks = rq.get("{}links".format(DataHolder.ip_ctrl),auth=HTTPBasicAuth("karaf","karaf"))
-        #print(responseLinks.text)
+        print("Response Links :" +responseLinks.text)
         jHosts = responseHosts.json()
         jDevices = responseDevice.json()
         jLinks = responseLinks.json()
