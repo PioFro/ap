@@ -102,3 +102,11 @@ class DataHolder:
     def send(subject, msg):
         for mail in dps.getMails():
             mailer.sendMail(mail.address,subject,msg)
+
+    @staticmethod
+    def checkPath(edge1, egde2):
+        isOK = False
+        for i in range(len(DataHolder.path)-1):
+            if (edge1 == DataHolder.path[i] and egde2 == DataHolder.path[i+1]) or (egde2 == DataHolder.path[i] and edge1 == DataHolder.path[i+1]):
+                isOK = True
+        return isOK

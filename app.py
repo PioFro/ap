@@ -64,6 +64,7 @@ def getFigureWithOptions(type = None, id=None, param = None):
 
 def topologyChanged(links, hosts, forwarders):
     try:
+        #dps.delSubjects()
         subjects = list(dps.getSubjects())
         for subject in subjects:
             hostDel = False
@@ -286,7 +287,10 @@ def network_graph(yearRange, AccountToSearch, sdn):
             devices = []
             links = []
             for host in jHosts["hosts"]:
-                hosts.append((host["mac"], host["ipAddresses"][0],host["locations"][0]["elementId"]))
+                try:
+                    hosts.append((host["mac"], host["ipAddresses"][0],host["locations"][0]["elementId"]))
+                except:
+                    print("there are some hosts without an IP address. Skipping...")
             for device in jDevices["devices"]:
                 devices.append(device["id"])
             for link in jLinks["links"]:
@@ -382,12 +386,12 @@ def network_graph(yearRange, AccountToSearch, sdn):
         x1, y1 = G.nodes[edge[1]]['pos']
         weight = float(G.edges[edge]['Link']) / max(edge1['Link']) * 10
         if G.nodes[edge[0]]["Type"]=="host" or G.nodes[edge[1]]["Type"]=="host":
-            c = '#FF5733'
+            c = "#1a936b"
         else:
             c=colors[index]
         if DataHolder.path is not None:
-            if edge[0] in DataHolder.path and edge[1] in DataHolder.path:
-                c = "#7b00ff"
+            if DataHolder.checkPath(edge[0], edge[1]):
+                c = "#e8fc03"
 
         trace = go.Scatter(x=tuple([x0, x1, None]), y=tuple([y0, y1, None]),
                            mode='lines',
@@ -403,10 +407,10 @@ def network_graph(yearRange, AccountToSearch, sdn):
                             hoverinfo="text", marker={'size': 20, 'color': 'LightSkyBlue'})
 
     node_trace_host = go.Scatter(x=[], y=[], hovertext=[], text=[], mode='markers+text', textposition="bottom center",
-                            hoverinfo="text", marker={'size': 10, 'color':  '#FF5733'})
+                            hoverinfo="text", marker={'size': 20, 'color':  "#1a936b"})
 
     node_trace_search = go.Scatter(x=[], y=[], hovertext=[], text=[], mode='markers+text', textposition="bottom center",
-                                 hoverinfo="text", marker={'size': 30, 'color': '#3d017d'})
+                                 hoverinfo="text", marker={'size': 30, 'color': "#e8fc03"})
 
     index = 0
     for node in G.nodes():
