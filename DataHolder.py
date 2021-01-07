@@ -23,6 +23,14 @@ class DataHolder:
     refreshTopology = True
     out_ip=sys.argv[3]
     tmp_fig=None
+    pathsTuples = [("of:0000000000000009","of:0000000000000002"),("of:0000000000000005","of:0000000000000003"),("of:0000000000000007","of:0000000000000005"),("of:0000000000000001","of:0000000000000004"),("of:0000000000000001","of:0000000000000009")]
+    paths = []
+
+    @staticmethod
+    def randomizeTuples(numberOfTuples):
+        print("randomize tuples")
+
+
 
     @staticmethod
     def getEvents():
@@ -107,6 +115,6 @@ class DataHolder:
     def checkPath(edge1, egde2):
         isOK = False
         for i in range(len(DataHolder.path)-1):
-            if (edge1 == DataHolder.path[i] and egde2 == DataHolder.path[i+1]) or (egde2 == DataHolder.path[i] and edge1 == DataHolder.path[i+1]):
+            if (edge1 == DataHolder.path[i] and egde2 == DataHolder.path[i+1]):
                 isOK = True
         return isOK

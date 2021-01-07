@@ -244,13 +244,13 @@ def obtainTopology():
     try:
         jHosts = None
         jDevices = None
-        print("{}hosts".format(DataHolder.ip_ctrl))
+        #print("{}hosts".format(DataHolder.ip_ctrl))
         responseHosts = rq.get("{}hosts".format(DataHolder.ip_ctrl), auth=HTTPBasicAuth("karaf", "karaf"))
-        print("Response Hosts: "+ responseHosts.text)
+        #print("Response Hosts: "+ responseHosts.text)
         responseDevice = rq.get("{}devices".format(DataHolder.ip_ctrl),auth=HTTPBasicAuth("karaf","karaf"))
-        print("Response Devices"+ responseDevice.text)
+        #print("Response Devices"+ responseDevice.text)
         responseLinks = rq.get("{}links".format(DataHolder.ip_ctrl),auth=HTTPBasicAuth("karaf","karaf"))
-        print("Response Links :" +responseLinks.text)
+        #print("Response Links :" +responseLinks.text)
         jHosts = responseHosts.json()
         jDevices = responseDevice.json()
         jLinks = responseLinks.json()
@@ -389,19 +389,45 @@ def network_graph(yearRange, AccountToSearch, sdn):
             c = "#1a936b"
         else:
             c=colors[index]
+        isSpecial = False
         if DataHolder.path is not None:
             if DataHolder.checkPath(edge[0], edge[1]):
                 c = "#e8fc03"
-
-        trace = go.Scatter(x=tuple([x0, x1, None]), y=tuple([y0, y1, None]),
+        ite = 0
+        itew = 0
+        for p in DataHolder.paths:
+            tmp = DataHolder.path
+            DataHolder.path = p[0]
+            if DataHolder.checkPath(edge[0], edge[1]) and edge[2] == 0:
+                isSpecial = True
+                node_special = go.Scatter(x=[], y=[],mode='markers',marker={'size': 50+itew, 'color': p[1].replace("0x","#")})
+                trace = go.Scatter(x=tuple([x0+ite, x1+ite, None]), y=tuple([y0+ite, y1+ite, None]),
+                                   mode='lines',
+                                   line={'width': 10},
+                                   marker=dict(color=p[1].replace("0x", "#")),
+                                   line_shape='spline',
+                                   opacity=1)
+                ite-=0.03
+                itew-=10
+                node_special["x"] = tuple([x0])
+                node_special["y"] = tuple([y0])
+                traceRecode.append(trace)
+                node_special["x"] = tuple([x1])
+                node_special["y"] = tuple([y1])
+                traceRecode.append(trace)
+                traceRecode.append(node_special)
+            DataHolder.path = tmp
+        if not isSpecial:
+            trace = go.Scatter(x=tuple([x0, x1, None]), y=tuple([y0, y1, None]),
                            mode='lines',
                            line={'width': 3},
-                           marker=dict(color=c),
+                           marker=dict(color=c.replace("0x","#")),
                            line_shape='spline',
                            opacity=1)
-        traceRecode.append(trace)
+            traceRecode.append(trace)
         index = index + 1
     ###############################################################################################################################################################
+
 
     node_trace = go.Scatter(x=[], y=[], hovertext=[], text=[], mode='markers+text', textposition="bottom center",
                             hoverinfo="text", marker={'size': 20, 'color': 'LightSkyBlue'})
@@ -621,7 +647,7 @@ app.layout = html.Div([
             html.Pre(id='log', style=styles['pre']),
             dcc.Interval(
                 id='interval-component-log',
-                interval=1 * 1000,  # in milliseconds
+                interval=1200 * 1000,  # in milliseconds
                 n_intervals=0)
         ],
         style={"maxHeight": "190px", "overflow-y": "scroll","background-color":"#fcfafd" })
@@ -777,7 +803,7 @@ dcc.Checklist(
 
 
 
-    ])])
+])])
 
 ###################################callback for left side components
 ################################callback for right side components
@@ -1199,9 +1225,20 @@ if __name__ == '__main__':
     DataHolder.ip_ctrl = sys.argv[1]
     dps.Data.mongoip=sys.argv[2]
     DataHolder.out_ip=sys.argv[3]
-
+    for t in DataHolder.pathsTuples:
+        colOk = False
+        while not colOk:
+            col = str(hex(random.randint(0,16777215)))
+            col = (6-len(col))*"0"+col
+            try:
+                node_special = go.Scatter(x=[], y=[], mode='markers',
+                                          marker={'size': 50, 'color': col.replace("0x", "#")})
+                colOk = True
+            except:
+                print("reroll colour")
+        DataHolder.paths.append((getPathBetween(t[0],t[1]),col))
+        print(DataHolder.paths[-1])
     print("Set ctrl ip to {} and mongodb connection is on {}:27017".format(DataHolder.ip_ctrl,dps.Data.mongoip))
     dps.global_init()
     DataHolder.restoreState()
-
     app.run_server(debug=True,host=DataHolder.out_ip,port=1111)
